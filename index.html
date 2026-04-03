@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="my">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cloth Stock Manager Pro</title>
+    <style>
+        :root { --primary: #28a745; --danger: #dc3545; --dark: #333; --warning: #ffc107; }
+        body { font-family: sans-serif; margin: 0; background: #f8f9fa; padding-bottom: 80px; }
+        header { background: white; padding: 15px; position: sticky; top: 0; box-shadow: 0 2px 5px rgba(0,0,0,0.1); z-index: 10; }
+        .search-box { width: 100%; padding: 12px; border-radius: 25px; border: 1px solid #ddd; font-size: 16px; box-sizing: border-box; outline: none; }
+        #inventory-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 15px; padding: 15px; }
+        .item-card { background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 3px 10px rgba(0,0,0,0.08); display: flex; flex-direction: column; position: relative; }
+        .item-img { width: 100%; height: 250px; object-fit: cover; background: #eee; }
+        .item-info { padding: 15px; }
+        .item-name { font-size: 18px; font-weight: bold; margin: 0; }
+        .price { color: var(--primary); font-weight: bold; font-size: 18px; margin: 10px 0; }
+        .out-of-stock-badge { position: absolute; top: 10px; right: 10px; background: var(--danger); color: white; padding: 5px 10px; border-radius: 5px; font-size: 12px; font-weight: bold; }
+        .stock-control { display: flex; align-items: center; justify-content: space-between; background: #f1f1f1; padding: 10px; border-radius: 8px; }
+        .qty-btn { width: 35px; height: 35px; border-radius: 50%; border: none; font-size: 20px; cursor: pointer; color: white; }
+        .plus { background: var(--primary); }
+        .minus { background: var(--danger); }
+        .floating-btn { position: fixed; bottom: 25px; right: 25px; width: 65px; height: 65px; background: var(--primary); color: white; border-radius: 50%; font-size: 35px; border: none; cursor: pointer; box-shadow: 0 5px 15px rgba(0,0,0,0.3); z-index: 20; }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); justify-content: center; align-items: center; z-index: 100; }
+        .modal-content { background: white; padding: 25px; border-radius: 15px; width: 90%; max-width: 400px; display: flex; flex-direction: column; gap: 12px; }
+        input { padding: 12px; border: 1px solid #ddd; border-radius: 8px; }
+        .save-btn { background: var(--primary); color: white; padding: 15px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+<header>
+    <input type="text" id="searchInput" class="search-box" placeholder="အင်္ကျီအမည်၊ အရောင်ဖြင့် ရှာပါ..." oninput="searchItems()">
+</header>
+
+<div id="inventory-list"></div>
+
+<button class="floating-btn" onclick="openModal()">+</button>
+
+<div id="itemModal" class="modal">
+    <div class="modal-content">
+        <h3>အင်္ကျီအသစ်ထည့်ရန်</h3>
+        <input type="text" id="itemName" placeholder="အင်္ကျီအမည်">
+        <input type="text" id="itemColor" placeholder="အရောင်">
+        <input type="text" id="itemSize" placeholder="ဆိုဒ်">
+        <input type="number" id="itemPrice" placeholder="ဈေးနှုန်း">
+        <input type="number" id="itemQty" placeholder="အရေအတွက်">
+        <input type="file" id="itemImgFile" accept="image/*">
+        <button class="save-btn" onclick="processAndSaveItem()">သိမ်းဆည်းမည်</button>
+        <button onclick="closeModal()" style="background:none; border:none; color:grey; cursor:pointer;">မလုပ်တော့ပါ</button>
+    </div>
+</div>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getDatabase, ref, push, onValue, update, remove } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+    // မင်းရဲ့ bubble-project အချက်အလက်များ
+    const firebaseConfig = {
+        apiKey: "AIzaSyDxJ0NGE0rE8xTcGplona1B1ZuAUdnp9SI",
+        authDomain: "bubble-project-4ca73.firebaseapp.com",
+        // အရေးကြီးဆုံးက ဒီ databaseURL ပါပဲ
+        databaseURL: "https://bubble-project-4ca73-default-rtdb.asia-southeast1.firebasedatabase.app", 
+        projectId: "bubble-project-4ca73",
+        storageBucket: "bubble-project-4ca73.firebasestorage.app",
+        messagingSenderId: "695445782100",
+        appId: "1:695445782100:web:656232bcfb92cf9e4d77c1"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    const inventoryRef = ref(db, 'cloth_inventory');
+
+    let allItems = {};
+
+    window.openModal = () => document.getElementById('itemModal').style.display = 'flex';
+    window.closeModal = () => document.getElementById('itemModal').style.display = 'none';
+
+    window.processAndSaveItem = () => {
+        const fileInput = document.getElementById('itemImgFile');
+        const name = document.getElementById('itemName').value;
+        const color = document.getElementById('itemColor').value;
+        const size = document.getElementById('itemSize').value;
+        const price = document.getElementById('itemPrice').value;
+        const qty = parseInt(document.getElementById('itemQty').value) || 0;
+
+        if (!name) return alert("အမည်ထည့်ပါ");
+
+        document.querySelector('.save-btn').innerText = "သိမ်းဆည်းနေပါသည်...";
+
+        if (fileInput.files && fileInput.files[0]) {
+            const reader = new FileReader();
+            reader.onload = (e) => saveDataToFirebase(name, color, size, price, qty, e.target.result);
+            reader.readAsDataURL(fileInput.files[0]);
+        } else {
+            saveDataToFirebase(name, color, size, price, qty, 'https://via.placeholder.com/250');
+        }
+    };
+
+    function saveDataToFirebase(name, color, size, price, qty, img) {
+        push(inventoryRef, { name, color, size, price, qty, img })
+        .then(() => {
+            closeModal();
+            clearForm();
+            document.querySelector('.save-btn').innerText = "သိမ်းဆည်းမည်";
+        })
+        .catch(err => alert("Error: " + err.message));
+    }
+
+    function clearForm() {
+        ['itemName', 'itemColor', 'itemSize', 'itemPrice', 'itemQty', 'itemImgFile'].forEach(id => document.getElementById(id).value = '');
+    }
+
+    window.updateQty = (id, change) => {
+        const newQty = (allItems[id].qty || 0) + change;
+        if (newQty >= 0) update(ref(db, 'cloth_inventory/' + id), { qty: newQty });
+    };
+
+    window.deleteItem = (id) => {
+        if(confirm("ဖျက်မှာလား?")) remove(ref(db, 'cloth_inventory/' + id));
+    };
+
+    onValue(inventoryRef, (snapshot) => {
+        allItems = snapshot.val() || {};
+        renderItems(allItems);
+    });
+
+    function renderItems(data) {
+        const list = document.getElementById('inventory-list');
+        list.innerHTML = '';
+        Object.keys(data).reverse().forEach(id => {
+            const item = data[id];
+            const card = document.createElement('div');
+            card.className = 'item-card';
+            card.innerHTML = `
+                ${item.qty <= 0 ? '<div class="out-of-stock-badge">ကုန်ပြီ</div>' : ''}
+                <img src="${item.img}" class="item-img">
+                <div class="item-info">
+                    <p class="item-name">${item.name}</p>
+                    <p>${item.size} | ${item.color}</p>
+                    <p class="price">${Number(item.price).toLocaleString()} MMK</p>
+                    <div class="stock-control">
+                        <button class="qty-btn minus" onclick="updateQty('${id}', -1)">-</button>
+                        <span>${item.qty}</span>
+                        <button class="qty-btn plus" onclick="updateQty('${id}', 1)">+</button>
+                    </div>
+                    <button onclick="deleteItem('${id}')" style="color:red; border:none; background:none; margin-top:10px; cursor:pointer;">ဖျက်မည်</button>
+                </div>`;
+            list.appendChild(card);
+        });
+    }
+
+    window.searchItems = () => {
+        const query = document.getElementById('searchInput').value.toLowerCase();
+        const filtered = {};
+        Object.keys(allItems).forEach(id => {
+            if (allItems[id].name.toLowerCase().includes(query) || allItems[id].color.toLowerCase().includes(query)) filtered[id] = allItems[id];
+        });
+        renderItems(filtered);
+    };
+</script>
+</body>
+</html>

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Cloth Stock Manager Pro</title>
     <style>
-        :root { --primary: #28a745; --danger: #dc3545; --dark: #333; --warning: #ffc107; }
+        :root { --primary: #28a745; --danger: #dc3545; --dark: #333; --blue: #007bff; --orange: #fd7e14; }
         body { font-family: sans-serif; margin: 0; background: #f8f9fa; padding-bottom: 80px; }
         header { background: white; padding: 15px; position: sticky; top: 0; box-shadow: 0 2px 5px rgba(0,0,0,0.1); z-index: 10; }
         .search-box { width: 100%; padding: 12px; border-radius: 25px; border: 1px solid #ddd; font-size: 16px; box-sizing: border-box; outline: none; }
@@ -14,15 +14,19 @@
         .item-img { width: 100%; height: 250px; object-fit: cover; background: #eee; }
         .item-info { padding: 15px; }
         .item-name { font-size: 18px; font-weight: bold; margin: 0; }
-        .price { color: var(--primary); font-weight: bold; font-size: 18px; margin: 10px 0; }
+        .price { color: var(--primary); font-weight: bold; font-size: 18px; margin: 5px 0; }
+        .stock-text { font-size: 15px; color: #555; margin-bottom: 10px; font-weight: bold; }
         .out-of-stock-badge { position: absolute; top: 10px; right: 10px; background: var(--danger); color: white; padding: 5px 10px; border-radius: 5px; font-size: 12px; font-weight: bold; }
-        .stock-control { display: flex; align-items: center; justify-content: space-between; background: #f1f1f1; padding: 10px; border-radius: 8px; }
-        .qty-btn { width: 35px; height: 35px; border-radius: 50%; border: none; font-size: 20px; cursor: pointer; color: white; }
-        .plus { background: var(--primary); }
-        .minus { background: var(--danger); }
+        
+        .btn-group { display: flex; gap: 5px; margin-top: 10px; flex-wrap: wrap; }
+        .action-btn { flex: 1; padding: 10px; border: none; border-radius: 5px; color: white; cursor: pointer; font-size: 12px; font-weight: bold; }
+        .btn-edit { background: var(--blue); }
+        .btn-duplicate { background: var(--orange); }
+        .btn-delete { background: var(--danger); }
+
         .floating-btn { position: fixed; bottom: 25px; right: 25px; width: 65px; height: 65px; background: var(--primary); color: white; border-radius: 50%; font-size: 35px; border: none; cursor: pointer; box-shadow: 0 5px 15px rgba(0,0,0,0.3); z-index: 20; }
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); justify-content: center; align-items: center; z-index: 100; }
-        .modal-content { background: white; padding: 25px; border-radius: 15px; width: 90%; max-width: 400px; display: flex; flex-direction: column; gap: 12px; }
+        .modal-content { background: white; padding: 25px; border-radius: 15px; width: 90%; max-width: 400px; display: flex; flex-direction: column; gap: 12px; max-height: 90vh; overflow-y: auto; }
         input { padding: 12px; border: 1px solid #ddd; border-radius: 8px; }
         .save-btn { background: var(--primary); color: white; padding: 15px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; }
     </style>
@@ -30,7 +34,7 @@
 <body>
 
 <header>
-    <input type="text" id="searchInput" class="search-box" placeholder="အင်္ကျီအမည်၊ အရောင်ဖြင့် ရှာပါ..." oninput="searchItems()">
+    <input type="text" id="searchInput" class="search-box" placeholder="အင်္ကျီအမည်၊ အရောင်ဖြင့် ရှာဖွေပါ" oninput="searchItems()">
 </header>
 
 <div id="inventory-list"></div>
@@ -39,15 +43,17 @@
 
 <div id="itemModal" class="modal">
     <div class="modal-content">
-        <h3>အင်္ကျီအသစ်ထည့်ရန်</h3>
+        <h3 id="modalTitle">အင်္ကျီအသစ်ထည့်ရန်</h3>
+        <input type="hidden" id="editKey">
         <input type="text" id="itemName" placeholder="အင်္ကျီအမည်">
         <input type="text" id="itemColor" placeholder="အရောင်">
         <input type="text" id="itemSize" placeholder="ဆိုဒ်">
         <input type="number" id="itemPrice" placeholder="ဈေးနှုန်း">
         <input type="number" id="itemQty" placeholder="အရေအတွက်">
+        <label style="font-size: 12px; color: #666;">ဓာတ်ပုံ</label>
         <input type="file" id="itemImgFile" accept="image/*">
-        <button class="save-btn" onclick="processAndSaveItem()">သိမ်းဆည်းမည်</button>
-        <button onclick="closeModal()" style="background:none; border:none; color:grey; cursor:pointer;">မလုပ်တော့ပါ</button>
+        <button class="save-btn" id="modalSaveBtn" onclick="processAndSaveItem()">သိမ်းဆည်းမည်</button>
+        <button onclick="closeModal()" style="background:none; border:none; color:red; cursor:pointer;">မလုပ်တော့ပါ</button>
     </div>
 </div>
 
@@ -55,11 +61,9 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
     import { getDatabase, ref, push, onValue, update, remove } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
-    // မင်းရဲ့ bubble-project အချက်အလက်များ
     const firebaseConfig = {
         apiKey: "AIzaSyDxJ0NGE0rE8xTcGplona1B1ZuAUdnp9SI",
         authDomain: "bubble-project-4ca73.firebaseapp.com",
-        // အရေးကြီးဆုံးက ဒီ databaseURL ပါပဲ
         databaseURL: "https://bubble-project-4ca73-default-rtdb.asia-southeast1.firebasedatabase.app", 
         projectId: "bubble-project-4ca73",
         storageBucket: "bubble-project-4ca73.firebasestorage.app",
@@ -73,10 +77,34 @@
 
     let allItems = {};
 
-    window.openModal = () => document.getElementById('itemModal').style.display = 'flex';
+    window.openModal = (mode = 'add', key = '') => {
+        const modal = document.getElementById('itemModal');
+        const title = document.getElementById('modalTitle');
+        const saveBtn = document.getElementById('modalSaveBtn');
+        
+        if (mode === 'edit') {
+            title.innerText = "အချက်အလက်ပြင်မည်";
+            saveBtn.innerText = "ပြင်ဆင်ချက်များသိမ်းမည်";
+            document.getElementById('editKey').value = key;
+            const item = allItems[key];
+            document.getElementById('itemName').value = item.name;
+            document.getElementById('itemColor').value = item.color;
+            document.getElementById('itemSize').value = item.size;
+            document.getElementById('itemPrice').value = item.price;
+            document.getElementById('itemQty').value = item.qty;
+        } else {
+            title.innerText = "အင်္ကျီအသစ်ထည့်ရန်";
+            saveBtn.innerText = "သိမ်းဆည်းမည်";
+            document.getElementById('editKey').value = '';
+            clearForm();
+        }
+        modal.style.display = 'flex';
+    };
+
     window.closeModal = () => document.getElementById('itemModal').style.display = 'none';
 
     window.processAndSaveItem = () => {
+        const key = document.getElementById('editKey').value;
         const fileInput = document.getElementById('itemImgFile');
         const name = document.getElementById('itemName').value;
         const color = document.getElementById('itemColor').value;
@@ -86,38 +114,42 @@
 
         if (!name) return alert("အမည်ထည့်ပါ");
 
-        document.querySelector('.save-btn').innerText = "သိမ်းဆည်းနေပါသည်...";
-
         if (fileInput.files && fileInput.files[0]) {
             const reader = new FileReader();
-            reader.onload = (e) => saveDataToFirebase(name, color, size, price, qty, e.target.result);
+            reader.onload = (e) => saveData(key, name, color, size, price, qty, e.target.result);
             reader.readAsDataURL(fileInput.files[0]);
         } else {
-            saveDataToFirebase(name, color, size, price, qty, 'https://via.placeholder.com/250');
+            const existingImg = key ? allItems[key].img : 'https://via.placeholder.com/250';
+            saveData(key, name, color, size, price, qty, existingImg);
         }
     };
 
-    function saveDataToFirebase(name, color, size, price, qty, img) {
-        push(inventoryRef, { name, color, size, price, qty, img })
-        .then(() => {
-            closeModal();
-            clearForm();
-            document.querySelector('.save-btn').innerText = "သိမ်းဆည်းမည်";
-        })
-        .catch(err => alert("Error: " + err.message));
+    function saveData(key, name, color, size, price, qty, img) {
+        const data = { name, color, size, price, qty, img };
+        if (key) {
+            update(ref(db, 'cloth_inventory/' + key), data).then(() => closeModal());
+        } else {
+            push(inventoryRef, data).then(() => closeModal());
+        }
     }
 
-    function clearForm() {
-        ['itemName', 'itemColor', 'itemSize', 'itemPrice', 'itemQty', 'itemImgFile'].forEach(id => document.getElementById(id).value = '');
-    }
-
-    window.updateQty = (id, change) => {
-        const newQty = (allItems[id].qty || 0) + change;
-        if (newQty >= 0) update(ref(db, 'cloth_inventory/' + id), { qty: newQty });
+    // ပွားမည် (Duplicate) - နာမည်မပြောင်းဘဲ အရေအတွက်ကို 1 လို့ထားမည်
+    window.duplicateItem = (key) => {
+        const item = allItems[key];
+        const newItem = { 
+            ...item, 
+            qty: 1  // အရေအတွက်ကို 1 ဟု သတ်မှတ်သည်
+        };
+        // Firebase ကို push လုပ်လိုက်ရင် List ရဲ့ အပေါ်ဆုံးမှာ ရောက်လာမှာပါ
+        push(inventoryRef, newItem);
     };
 
-    window.deleteItem = (id) => {
-        if(confirm("ဖျက်မှာလား?")) remove(ref(db, 'cloth_inventory/' + id));
+    function clearForm() {
+        ['itemName', 'itemColor', 'itemSize', 'itemPrice', 'itemQty', 'itemImgFile', 'editKey'].forEach(id => document.getElementById(id).value = '');
+    }
+
+    window.deleteItem = (key) => {
+        if(confirm("ဖျက်မှာသေချာလား?")) remove(ref(db, 'cloth_inventory/' + key));
     };
 
     onValue(inventoryRef, (snapshot) => {
@@ -128,6 +160,7 @@
     function renderItems(data) {
         const list = document.getElementById('inventory-list');
         list.innerHTML = '';
+        // Object.keys(data).reverse() ကြောင့် နောက်ဆုံးထည့်/ပွားလိုက်တဲ့အရာက အပေါ်ဆုံးမှာ ပေါ်မှာပါ
         Object.keys(data).reverse().forEach(id => {
             const item = data[id];
             const card = document.createElement('div');
@@ -139,12 +172,12 @@
                     <p class="item-name">${item.name}</p>
                     <p>${item.size} | ${item.color}</p>
                     <p class="price">${Number(item.price).toLocaleString()} MMK</p>
-                    <div class="stock-control">
-                        <button class="qty-btn minus" onclick="updateQty('${id}', -1)">-</button>
-                        <span>${item.qty}</span>
-                        <button class="qty-btn plus" onclick="updateQty('${id}', 1)">+</button>
+                    <p class="stock-text">လက်ကျန်အရေအတွက်: ${item.qty}</p>
+                    <div class="btn-group">
+                        <button class="action-btn btn-edit" onclick="openModal('edit', '${id}')">ပြင်မည်</button>
+                        <button class="action-btn btn-duplicate" onclick="duplicateItem('${id}')">ပွားမည်</button>
+                        <button class="action-btn btn-delete" onclick="deleteItem('${id}')">ဖျက်မည်</button>
                     </div>
-                    <button onclick="deleteItem('${id}')" style="color:red; border:none; background:none; margin-top:10px; cursor:pointer;">ဖျက်မည်</button>
                 </div>`;
             list.appendChild(card);
         });
